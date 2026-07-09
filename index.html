@@ -211,10 +211,10 @@ function mostrarResultadoScan(r) {
   card.style.display = 'block';
 
   if (!r.ok) {
-    icon.textContent = '⚠️';
+    icon.textContent = r.tipo === 'temprano' ? '⏳' : '⚠️';
     nombre.textContent = r.persona ? r.persona.nombre : 'No reconocido';
     detalle.textContent = r.persona ? (r.persona.grado + ' ' + r.persona.curso) : '';
-    estado.style.color = '#f87171';
+    estado.style.color = r.tipo === 'temprano' ? '#facc15' : '#f87171';
     estado.textContent = r.msg;
     return;
   }
