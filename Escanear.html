@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCFA — Escanear Asistencia</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',Arial,sans-serif}
+  body{background:#141414;color:#e4e4e4;min-height:100vh}
+
+  /* ---------- LOGIN ---------- */
+  #loginScreen{position:fixed;inset:0;z-index:1000;background:#141414;display:flex;align-items:center;justify-content:center}
+  .login-card{background:#222;border:1px solid #333;border-radius:10px;padding:36px 32px;width:300px}
+  .lc-app{color:#22c55e;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-align:center;margin-bottom:4px}
+  .lc-title{color:#888;font-size:12px;text-align:center;margin-bottom:24px}
+  .lf-input{width:100%;padding:10px 12px;margin-top:10px;border-radius:6px;border:1px solid #333;background:#1a1a1a;color:#e4e4e4;font-size:14px}
+  .lf-input:focus{outline:none;border-color:#22c55e}
+  .btn-login{width:100%;padding:10px;border-radius:6px;margin-top:16px;background:#22c55e;color:#000;font-size:14px;font-weight:700;letter-spacing:1px;text-transform:uppercase;border:none;cursor:pointer}
+  .btn-login:hover{background:#16a34a}
+  .login-err{margin-top:10px;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#f87171;font-size:12px;text-align:center;display:none}
+
+  /* ---------- APP ---------- */
+  #appShell{display:none;flex-direction:column;min-height:100vh}
+  .topbar{padding:14px 16px;background:#1a1a1a;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;align-items:center}
+  .topbar-title{font-size:14px;font-weight:700}
+  .topbar-title span{color:#22c55e}
+  .topbar-user{font-size:11px;color:#888;display:flex;align-items:center;gap:10px}
+  .btn-logout{background:none;border:1px solid #333;color:#999;border-radius:5px;padding:5px 10px;font-size:11px;cursor:pointer}
+
+  .content{flex:1;padding:20px;display:flex;flex-direction:column;align-items:center}
+  .card{background:#1c1c1c;border:1px solid #2a2a2a;border-radius:10px;padding:18px;width:100%;max-width:420px}
+  .card-title{font-size:14px;font-weight:700;margin-bottom:14px;text-align:center}
+
+  #qrReader{width:100%;border-radius:8px;overflow:hidden;background:#000;min-height:260px}
+  .actions{display:flex;gap:10px;margin-top:16px;justify-content:center}
+  .btn{padding:10px 20px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid transparent}
+  .btn-primary{background:#22c55e;color:#000}
+  .btn-primary:hover{background:#16a34a}
+  .btn-outline{background:transparent;border-color:#333;color:#ccc}
+
+  #scanResultCard{margin-top:16px;text-align:center;display:none}
+  #scanIcon{font-size:46px;margin-bottom:8px}
+  #scanNombre{font-size:17px;font-weight:700;margin-bottom:4px}
+  #scanDetalle{font-size:12px;color:#999;margin-bottom:10px}
+  #scanEstado{font-size:14px;font-weight:700}
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="lc-app">SCFA</div>
+    <div class="lc-title">Escaneo de Asistencia</div>
+    <input class="lf-input" type="text" id="loginUser" placeholder="Tu usuario" autocomplete="username">
+    <input class="lf-input" type="password" id="loginPass" placeholder="Tu contraseña" autocomplete="current-password">
+    <button class="btn-login" id="btnLogin">Ingresar</button>
+    <div class="login-err" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="appShell">
+  <div class="topbar">
+    <div class="topbar-title">SCFA <span>· Escaneo</span></div>
+    <div class="topbar-user">
+      <span id="userLabel"></span>
+      <button class="btn-logout" id="btnLogout">Salir</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="card">
+      <div class="card-title">Escanear QR de Asistencia</div>
+      <div id="qrReader"></div>
+      <div class="actions">
+        <button class="btn btn-primary" id="btnIniciarCam">Iniciar cámara</button>
+        <button class="btn btn-outline" id="btnDetenerCam" style="display:none">Detener</button>
+      </div>
+    </div>
+
+    <div class="card" id="scanResultCard">
+      <div id="scanIcon"></div>
+      <div id="scanNombre"></div>
+      <div id="scanDetalle"></div>
+      <div id="scanEstado"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// ⚠️ CONFIGURA ESTO: pega aquí la URL de tu implementación de Apps Script
+// (Implementar > Gestionar implementaciones > copia la URL que termina en /exec)
+// ============================================================
+var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxFMQPmRVWd_grQk9guZ-nifpbNolWn3bm0drfbmes38u_QTPnErNd6IOGbLI6g2ljqvA/exec';
+
+var APP = { usuario: null, nombre: null, rol: null };
+var qrScanner = null;
+var ultimoTokenLeido = null;
+var bloqueadoHasta = 0;
+
+document.addEventListener('DOMContentLoaded', function () {
+  document.getElementById('btnLogin').onclick = doLogin;
+  document.getElementById('loginPass').onkeydown = function (e) { if (e.key === 'Enter') doLogin(); };
+  document.getElementById('loginUser').onkeydown = function (e) { if (e.key === 'Enter') document.getElementById('loginPass').focus(); };
+  document.getElementById('btnLogout').onclick = doLogout;
+  document.getElementById('btnIniciarCam').onclick = iniciarCamara;
+  document.getElementById('btnDetenerCam').onclick = detenerCamara;
+});
+
+// ---- Llamada JSONP a Apps Script (evita problemas de CORS) ----
+function llamarApi(params, cb) {
+  var cbName = 'cb_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+  window[cbName] = function (data) {
+    delete window[cbName];
+    document.body.removeChild(script);
+    cb(data);
+  };
+  var qs = Object.keys(params).map(function (k) {
+    return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+  }).join('&');
+  var script = document.createElement('script');
+  script.src = WEBAPP_URL + '?' + qs + '&callback=' + cbName;
+  script.onerror = function () {
+    delete window[cbName];
+    cb({ ok: false, msg: 'No se pudo conectar con el servidor. Revisa la URL configurada.' });
+  };
+  document.body.appendChild(script);
+}
+
+function doLogin() {
+  var u = document.getElementById('loginUser').value.trim();
+  var p = document.getElementById('loginPass').value.trim();
+  var err = document.getElementById('loginErr');
+  var btn = document.getElementById('btnLogin');
+  err.style.display = 'none';
+  if (!u || !p) { err.textContent = 'Ingresa usuario y contraseña.'; err.style.display = 'block'; return; }
+  btn.textContent = 'Verificando...'; btn.disabled = true;
+
+  llamarApi({ accion: 'login', usuario: u, clave: p }, function (r) {
+    btn.textContent = 'Ingresar'; btn.disabled = false;
+    if (r && r.ok) {
+      APP.usuario = r.usuario; APP.nombre = r.nombre; APP.rol = r.rol;
+      startApp();
+    } else {
+      err.textContent = (r && r.msg) || 'Error al iniciar sesión.'; err.style.display = 'block';
+    }
+  });
+}
+
+function doLogout() {
+  detenerCamara();
+  APP = { usuario: null, nombre: null, rol: null };
+  document.getElementById('appShell').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('loginUser').value = '';
+  document.getElementById('loginPass').value = '';
+}
+
+function startApp() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appShell').style.display = 'flex';
+  document.getElementById('userLabel').textContent = APP.nombre + ' · ' + APP.rol;
+}
+
+// ============================================================
+// CAMARA / ESCANEO
+// ============================================================
+function iniciarCamara() {
+  document.getElementById('btnIniciarCam').style.display = 'none';
+  document.getElementById('btnDetenerCam').style.display = 'inline-block';
+  document.getElementById('scanResultCard').style.display = 'none';
+
+  qrScanner = new Html5Qrcode('qrReader');
+  qrScanner.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: 240 },
+    onScanSuccess,
+    function () { /* ignora frames sin QR, es normal */ }
+  ).catch(function (err) {
+    alert('No se pudo acceder a la cámara: ' + err);
+    detenerCamara();
+  });
+}
+
+function detenerCamara() {
+  document.getElementById('btnIniciarCam').style.display = 'inline-block';
+  document.getElementById('btnDetenerCam').style.display = 'none';
+  if (qrScanner) {
+    qrScanner.stop().then(function () { qrScanner.clear(); qrScanner = null; }).catch(function () { qrScanner = null; });
+  }
+}
+
+function onScanSuccess(decodedText) {
+  var ahora = Date.now();
+  if (decodedText === ultimoTokenLeido && ahora < bloqueadoHasta) return; // evita doble lectura
+  ultimoTokenLeido = decodedText;
+  bloqueadoHasta = ahora + 4000;
+  beep();
+  llamarApi({ accion: 'escanear', token: decodedText, usuario: APP.usuario }, mostrarResultadoScan);
+}
+
+function mostrarResultadoScan(r) {
+  var card = document.getElementById('scanResultCard');
+  var icon = document.getElementById('scanIcon');
+  var nombre = document.getElementById('scanNombre');
+  var detalle = document.getElementById('scanDetalle');
+  var estado = document.getElementById('scanEstado');
+  card.style.display = 'block';
+
+  if (!r.ok) {
+    icon.textContent = '⚠️';
+    nombre.textContent = r.persona ? r.persona.nombre : 'No reconocido';
+    detalle.textContent = r.persona ? (r.persona.grado + ' ' + r.persona.curso) : '';
+    estado.style.color = '#f87171';
+    estado.textContent = r.msg;
+    return;
+  }
+
+  nombre.textContent = r.persona.nombre;
+  detalle.textContent = r.persona.grado + ' ' + r.persona.curso + ' · ' + r.hora;
+
+  if (r.tipo === 'entrada') {
+    icon.textContent = '✅';
+    estado.style.color = r.estado === 'A tiempo' ? '#4ade80' : '#facc15';
+    estado.textContent = 'ENTRADA registrada · ' + r.estado + (r.retraso !== '0 min' ? ' (' + r.retraso + ')' : '');
+  } else if (r.tipo === 'salida') {
+    icon.textContent = '🚪';
+    estado.style.color = '#60a5fa';
+    estado.textContent = 'SALIDA registrada · Total: ' + r.totalHoras + ' hrs';
+  }
+}
+
+function beep() {
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880; gain.gain.value = 0.1;
+    osc.start(); osc.stop(ctx.currentTime + 0.12);
+  } catch (e) { /* silencioso si el navegador bloquea audio */ }
+}
+</script>
+</body>
+</html>
