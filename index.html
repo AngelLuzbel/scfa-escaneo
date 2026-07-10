@@ -100,6 +100,7 @@ var APP = { usuario: null, nombre: null, rol: null };
 var qrScanner = null;
 var ultimoTokenLeido = null;
 var bloqueadoHasta = 0;
+var ocultarResultadoTimer = null;
 
 document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('btnLogin').onclick = doLogin;
@@ -173,10 +174,13 @@ function iniciarCamara() {
   document.getElementById('btnDetenerCam').style.display = 'inline-block';
   document.getElementById('scanResultCard').style.display = 'none';
 
-  qrScanner = new Html5Qrcode('qrReader');
+  qrScanner = new Html5Qrcode('qrReader', {
+    formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+    useBarCodeDetectorIfSupported: true
+  });
   qrScanner.start(
     { facingMode: 'environment' },
-    { fps: 10, qrbox: 240 },
+    { fps: 15, qrbox: 240, disableFlip: true },
     onScanSuccess,
     function () { /* ignora frames sin QR, es normal */ }
   ).catch(function (err) {
@@ -209,6 +213,9 @@ function mostrarResultadoScan(r) {
   var detalle = document.getElementById('scanDetalle');
   var estado = document.getElementById('scanEstado');
   card.style.display = 'block';
+
+  if (ocultarResultadoTimer) clearTimeout(ocultarResultadoTimer);
+  ocultarResultadoTimer = setTimeout(function () { card.style.display = 'none'; }, 3500);
 
   if (!r.ok) {
     icon.textContent = r.tipo === 'temprano' ? '⏳' : '⚠️';
